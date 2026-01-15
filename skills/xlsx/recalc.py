@@ -19,7 +19,6 @@ from openpyxl import load_workbook
 from platform_utils import (
     get_libreoffice_macro_dir,
     get_soffice_command,
-    run_with_timeout,
     is_excel_com_available,
     recalc_with_excel_com,
 )
@@ -54,7 +53,8 @@ def setup_libreoffice_macro():
 
     if not os.path.exists(macro_dir):
         try:
-            run_with_timeout([soffice, '--headless', '--terminate_after_init'], timeout=10)
+            subprocess.run([soffice, '--headless', '--terminate_after_init'],
+                          capture_output=True, timeout=10)
         except subprocess.TimeoutExpired:
             pass  # Timeout is acceptable for initialization
         os.makedirs(macro_dir, exist_ok=True)
@@ -93,7 +93,7 @@ def _recalc_with_libreoffice(abs_path: str, timeout: int) -> dict:
     ]
 
     try:
-        result = run_with_timeout(cmd, timeout=timeout)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {'error': f'Recalculation timed out after {timeout} seconds'}
 
