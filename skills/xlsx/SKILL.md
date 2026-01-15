@@ -219,7 +219,7 @@ The script:
 - Recalculates all formulas in all sheets
 - Scans ALL cells for Excel errors (#REF!, #DIV/0!, etc.)
 - Returns JSON with detailed error locations and counts
-- Works on both Linux and macOS
+- **Cross-platform**: Works on Windows, macOS, and Linux
 
 ## Formula Verification Checklist
 
@@ -287,3 +287,18 @@ The script returns JSON with error details:
 - Add comments to cells with complex formulas or important assumptions
 - Document data sources for hardcoded values
 - Include notes for key calculations and model sections
+
+## Dependencies
+
+**LibreOffice** is required for formula recalculation:
+
+| Platform | Installation |
+|----------|--------------|
+| Windows | Download from [libreoffice.org](https://www.libreoffice.org/download/) or `winget install LibreOffice` |
+| macOS | `brew install --cask libreoffice` or download from website |
+| Linux | `sudo apt install libreoffice` (Debian/Ubuntu) or equivalent |
+
+**Python packages** (install if not available):
+```bash
+pip install openpyxl pandas
+```

@@ -190,8 +190,16 @@ pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
 
 Required dependencies (install if not available):
 
-- **pandoc**: `sudo apt-get install pandoc` (for text extraction)
-- **docx**: `npm install -g docx` (for creating new documents)
-- **LibreOffice**: `sudo apt-get install libreoffice` (for PDF conversion)
-- **Poppler**: `sudo apt-get install poppler-utils` (for pdftoppm to convert PDF to images)
-- **defusedxml**: `pip install defusedxml` (for secure XML parsing)
+### Cross-platform installation
+
+| Dependency | Windows | macOS | Linux |
+|------------|---------|-------|-------|
+| **pandoc** | `winget install pandoc` | `brew install pandoc` | `sudo apt install pandoc` |
+| **LibreOffice** | `winget install LibreOffice` | `brew install --cask libreoffice` | `sudo apt install libreoffice` |
+| **Poppler** | [poppler-windows](https://github.com/osborn/poppler/releases) | `brew install poppler` | `sudo apt install poppler-utils` |
+| **docx (npm)** | `npm install -g docx` | `npm install -g docx` | `npm install -g docx` |
+
+### Python packages
+```bash
+pip install defusedxml
+```
