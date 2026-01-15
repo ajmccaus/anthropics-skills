@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 Excel Formula Recalculation Script
-Recalculates all formulas in an Excel file using LibreOffice
 
 Cross-platform support: Windows, macOS, Linux
+- Windows: Uses Excel COM if available (preferred), falls back to LibreOffice
+- macOS/Linux: Uses LibreOffice
 """
 
 import json
@@ -19,6 +20,8 @@ from platform_utils import (
     get_libreoffice_macro_dir,
     get_soffice_command,
     run_with_timeout,
+    is_excel_com_available,
+    recalc_with_excel_com,
 )
 from recalc_utils import (
     iterate_data_cells,
@@ -74,11 +77,42 @@ def setup_libreoffice_macro():
         return False
 
 
+def _recalc_with_libreoffice(abs_path: str, timeout: int) -> dict:
+    """Recalculate using LibreOffice (fallback method)."""
+    if not setup_libreoffice_macro():
+        return {'error': 'LibreOffice not configured. Install LibreOffice or Microsoft Excel.'}
+
+    soffice = get_soffice_command()
+    if not soffice:
+        return {'error': 'LibreOffice not found. Install LibreOffice or Microsoft Excel.'}
+
+    cmd = [
+        soffice, '--headless', '--norestore',
+        'vnd.sun.star.script:Standard.Module1.RecalculateAndSave?language=Basic&location=application',
+        abs_path
+    ]
+
+    try:
+        result = run_with_timeout(cmd, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {'error': f'Recalculation timed out after {timeout} seconds'}
+
+    if result.returncode != 0:
+        error_msg = result.stderr or 'Unknown error during recalculation'
+        if 'Module1' in error_msg or 'RecalculateAndSave' not in error_msg:
+            return {'error': 'LibreOffice macro not configured properly'}
+        return {'error': error_msg}
+
+    return {'success': True}
+
+
 def recalc(filename, timeout=30):
     """
     Recalculate formulas in Excel file and report any errors.
 
-    Cross-platform: Works on Windows, macOS, and Linux.
+    On Windows: Uses Excel COM if available (faster, more accurate),
+                falls back to LibreOffice if Excel not installed.
+    On macOS/Linux: Uses LibreOffice.
 
     Args:
         filename: Path to Excel file
@@ -92,44 +126,33 @@ def recalc(filename, timeout=30):
 
     abs_path = str(Path(filename).absolute())
 
-    if not setup_libreoffice_macro():
-        return {'error': 'Failed to setup LibreOffice macro. Ensure LibreOffice is installed.'}
+    # Try Excel COM first on Windows (preferred - faster and more accurate)
+    recalc_result = None
+    if is_excel_com_available():
+        recalc_result = recalc_with_excel_com(abs_path)
+        if not recalc_result.get('success'):
+            # Excel COM failed, will try LibreOffice
+            print(f"Excel COM failed: {recalc_result.get('error')}. Trying LibreOffice...",
+                  file=sys.stderr)
+            recalc_result = None
 
-    # Find soffice command (cross-platform)
-    soffice = get_soffice_command()
-    if not soffice:
-        return {'error': 'LibreOffice not found. Please install LibreOffice and ensure it is in PATH.'}
+    # Fall back to LibreOffice if Excel COM not available or failed
+    if recalc_result is None:
+        recalc_result = _recalc_with_libreoffice(abs_path, timeout)
 
-    cmd = [
-        soffice, '--headless', '--norestore',
-        'vnd.sun.star.script:Standard.Module1.RecalculateAndSave?language=Basic&location=application',
-        abs_path
-    ]
+    if not recalc_result.get('success') and 'error' in recalc_result:
+        return recalc_result
 
-    # Use cross-platform timeout via subprocess (works on all platforms)
+    # Check for Excel errors in calculated values
     try:
-        result = run_with_timeout(cmd, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return {'error': f'Recalculation timed out after {timeout} seconds'}
-
-    if result.returncode != 0:
-        error_msg = result.stderr or 'Unknown error during recalculation'
-        if 'Module1' in error_msg or 'RecalculateAndSave' not in error_msg:
-            return {'error': 'LibreOffice macro not configured properly'}
-        else:
-            return {'error': error_msg}
-
-    # Check for Excel errors - using optimized single-pass analysis
-    try:
-        # Load workbook once with data_only=False to get both formulas and values
-        wb = load_workbook(filename, data_only=False)
+        # Load with data_only=True to get calculated values (for error detection)
+        wb_values = load_workbook(filename, data_only=True)
 
         error_details = {}
         total_errors = 0
-        formula_count = 0
 
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
+        for sheet_name in wb_values.sheetnames:
+            ws = wb_values[sheet_name]
 
             # Skip empty sheets efficiently
             if get_worksheet_bounds(ws) is None:
@@ -137,21 +160,28 @@ def recalc(filename, timeout=30):
 
             # Use optimized bounded iteration
             for cell in iterate_data_cells(ws):
-                value = cell.value
-
-                # Check for formula (O(1) operation)
-                if is_formula(value):
-                    formula_count += 1
-
-                # Check for errors using compiled regex
-                error = scan_cell_for_errors(value)
+                error = scan_cell_for_errors(cell.value)
                 if error:
                     if error not in error_details:
                         error_details[error] = []
                     error_details[error].append(f"{sheet_name}!{cell.coordinate}")
                     total_errors += 1
 
-        wb.close()
+        wb_values.close()
+
+        # Count formulas (separate load with data_only=False)
+        wb_formulas = load_workbook(filename, data_only=False)
+        formula_count = 0
+
+        for sheet_name in wb_formulas.sheetnames:
+            ws = wb_formulas[sheet_name]
+            if get_worksheet_bounds(ws) is None:
+                continue
+            for cell in iterate_data_cells(ws):
+                if is_formula(cell.value):
+                    formula_count += 1
+
+        wb_formulas.close()
 
         # Build result summary
         result = {
@@ -161,11 +191,10 @@ def recalc(filename, timeout=30):
             'error_summary': {}
         }
 
-        # Add non-empty error categories
         for err_type, locations in error_details.items():
             result['error_summary'][err_type] = {
                 'count': len(locations),
-                'locations': locations[:20]  # Show up to 20 locations
+                'locations': locations[:20]
             }
 
         return result
@@ -177,13 +206,14 @@ def recalc(filename, timeout=30):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python recalc.py <excel_file> [timeout_seconds]")
-        print("\nRecalculates all formulas in an Excel file using LibreOffice")
+        print("\nRecalculates all formulas in an Excel file.")
+        print("  - Windows: Uses Excel (if installed), falls back to LibreOffice")
+        print("  - macOS/Linux: Uses LibreOffice")
         print("\nReturns JSON with error details:")
         print("  - status: 'success' or 'errors_found'")
         print("  - total_errors: Total number of Excel errors found")
         print("  - total_formulas: Number of formulas in the file")
         print("  - error_summary: Breakdown by error type with locations")
-        print("    - #VALUE!, #DIV/0!, #REF!, #NAME?, #NULL!, #NUM!, #N/A")
         sys.exit(1)
     
     filename = sys.argv[1]

@@ -168,6 +168,64 @@ def _check_excel_installed() -> bool:
         return False
 
 
+def recalc_with_excel_com(filename: str) -> Dict[str, Any]:
+    """
+    Recalculate Excel file using Excel COM automation (Windows only).
+
+    This is the preferred method on Windows when Excel is installed.
+
+    Args:
+        filename: Path to Excel file (must be absolute path).
+
+    Returns:
+        Dict with 'success' (bool) and optional 'error' (str) keys.
+    """
+    if platform.system() != 'Windows':
+        return {'success': False, 'error': 'Excel COM only available on Windows'}
+
+    try:
+        import win32com.client
+        import pythoncom
+    except ImportError:
+        return {'success': False, 'error': 'win32com not installed. Run: pip install pywin32'}
+
+    excel = None
+    try:
+        # Initialize COM for this thread
+        pythoncom.CoInitialize()
+
+        # Create Excel application instance
+        excel = win32com.client.Dispatch("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
+
+        # Open workbook
+        wb = excel.Workbooks.Open(filename)
+
+        # Force full recalculation
+        excel.CalculateFull()
+
+        # Save and close
+        wb.Save()
+        wb.Close(SaveChanges=True)
+
+        return {'success': True}
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+    finally:
+        if excel:
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+
 def validate_path_for_platform(path: str) -> Dict[str, Any]:
     """
     Validate a file path for the current platform.

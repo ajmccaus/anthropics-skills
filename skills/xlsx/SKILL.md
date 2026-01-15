@@ -215,11 +215,11 @@ python recalc.py output.xlsx 30
 ```
 
 The script:
-- Automatically sets up LibreOffice macro on first run
+- **Windows**: Uses Microsoft Excel if installed (preferred), falls back to LibreOffice
+- **macOS/Linux**: Uses LibreOffice
 - Recalculates all formulas in all sheets
 - Scans ALL cells for Excel errors (#REF!, #DIV/0!, etc.)
 - Returns JSON with detailed error locations and counts
-- **Cross-platform**: Works on Windows, macOS, and Linux
 
 ## Formula Verification Checklist
 
@@ -290,15 +290,25 @@ The script returns JSON with error details:
 
 ## Dependencies
 
-**LibreOffice** is required for formula recalculation:
+**For formula recalculation:**
+
+| Platform | Primary | Fallback |
+|----------|---------|----------|
+| Windows | Microsoft Excel (if installed) | LibreOffice |
+| macOS | LibreOffice | - |
+| Linux | LibreOffice | - |
+
+**Installing LibreOffice** (only needed if Excel not installed on Windows):
 
 | Platform | Installation |
 |----------|--------------|
-| Windows | Download from [libreoffice.org](https://www.libreoffice.org/download/) or `winget install LibreOffice` |
-| macOS | `brew install --cask libreoffice` or download from website |
+| Windows | `winget install LibreOffice` or [download](https://www.libreoffice.org/download/) |
+| macOS | `brew install --cask libreoffice` |
 | Linux | `sudo apt install libreoffice` (Debian/Ubuntu) or equivalent |
 
-**Python packages** (install if not available):
+**Python packages:**
 ```bash
 pip install openpyxl pandas
+# Windows only (for Excel COM automation):
+pip install pywin32
 ```
